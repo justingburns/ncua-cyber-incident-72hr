@@ -13,12 +13,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import pdf
-from .clock import DUE_SOON, NOTIFIED_LATE, OVERDUE, fmt_local
+from .clock import DUE_SOON, NOTIFIED_LATE, OVERDUE, fmt_local, from_iso
 from .incident import load
 from .log import IncidentLog, LogError
 from .report import CSS, packet_blocks, packet_markdown, render_html
 
 ID_RE = re.compile(r"^CI-\d{8}-[0-9A-F]{4}$")
+DRILL_RE = re.compile(r"^TT-\d{8}-[0-9A-F]{4}$")
 
 COUNTDOWN_JS = """
 <script>
@@ -46,11 +47,43 @@ a { color: var(--accent); }
 """
 
 
-def dashboard_html(home: Path, tz: tzinfo) -> str:
+def _drills_section(drills: Path | None, tz: tzinfo) -> str:
+    from .tabletop import DrillLog, load_drill
+
+    e = html.escape
+    if drills is None:
+        return ""
+    rows = []
+    for iid in DrillLog.list_ids(drills):
+        try:
+            inc = load_drill(drills, iid)
+        except (LogError, KeyError, ValueError):
+            continue
+        end = [x["data"] for x in inc.entries if x["type"] == "drill_end"]
+        result = f"{end[-1]['score']} of 100" if end else "not finished"
+        when = fmt_local(from_iso(inc.entries[0]["recorded_at"]), tz)
+        rows.append(
+            f'<tr><td><a href="/drill/{e(iid)}">{e(iid)}</a></td><td>{e(inc.profile.get("scenario_title", ""))}</td>'
+            f"<td>{e(when)}</td><td>{e(result)}</td></tr>"
+        )
+    if not rows:
+        return ""
+    return (
+        "<h2>Tabletop drills</h2>"
+        '<p class="note">Exercises only. These are not real incidents and are never counted above.</p>'
+        "<table><thead><tr><th>Drill</th><th>Scenario</th><th>Run</th><th>Score</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+    )
+
+
+def dashboard_html(home: Path, tz: tzinfo, drills: Path | None = None) -> str:
     e = html.escape
     rows = []
     for iid in IncidentLog.list_ids(home):
         inc = load(IncidentLog.open(home, iid))
+        if inc.profile.get("exercise"):
+            continue
         clock = inc.clock()
         bad = clock.status in (OVERDUE, DUE_SOON, NOTIFIED_LATE) or not (inc.integrity and inc.integrity.ok)
         if clock.deadline and clock.remaining is not None:
@@ -81,6 +114,7 @@ def dashboard_html(home: Path, tz: tzinfo) -> str:
         )
     else:
         body += "<p>No incidents yet. Open one with <code>ncua72 new</code>.</p>"
+    body += _drills_section(drills, tz)
     return (
         '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -90,7 +124,7 @@ def dashboard_html(home: Path, tz: tzinfo) -> str:
     )
 
 
-def make_handler(home: Path, tz: tzinfo):
+def make_handler(home: Path, tz: tzinfo, drills: Path | None = None):
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code: int, body: str, ctype: str = "text/html; charset=utf-8") -> None:
             data = body.encode("utf-8")
@@ -117,10 +151,24 @@ def make_handler(home: Path, tz: tzinfo):
             path = self.path.split("?", 1)[0]
             try:
                 if path == "/":
-                    return self._send(200, dashboard_html(home, tz))
+                    return self._send(200, dashboard_html(home, tz, drills))
+                d = re.match(r"^/drill/([^/]+?)(\.pdf)?$", path)
+                if d and drills is not None and DRILL_RE.match(d.group(1)):
+                    from .tabletop import after_action_html, after_action_pdf, load_drill
+
+                    inc = load_drill(drills, d.group(1))
+                    if d.group(2):
+                        if not pdf.available():
+                            return self._send(501, f"<p>{html.escape(pdf.INSTALL_HINT)}</p>")
+                        data = after_action_pdf(inc, tz, author=inc.profile.get("facilitator") or None)
+                        return self._send_bytes(200, data, "application/pdf", f"{inc.incident_id}-after-action.pdf")
+                    back = f'<p><a href="/">Dashboard</a> · <a href="/drill/{inc.incident_id}.pdf">Download PDF</a></p>'
+                    return self._send(200, after_action_html(inc, tz, extra_body=back))
                 m = re.match(r"^/incident/([^/]+)(/packet\.(md|pdf))?$", path)
                 if m and ID_RE.match(m.group(1)):
                     inc = load(IncidentLog.open(home, m.group(1)))
+                    if inc.profile.get("exercise"):
+                        return self._send(404, "<p>No such incident</p>")
                     if m.group(3) == "md":
                         return self._send(200, packet_markdown(inc, tz), "text/markdown; charset=utf-8")
                     if m.group(3) == "pdf":
@@ -144,8 +192,8 @@ def make_handler(home: Path, tz: tzinfo):
     return Handler
 
 
-def serve(home: Path, tz: tzinfo, host: str = "127.0.0.1", port: int = 8072) -> None:
-    server = ThreadingHTTPServer((host, port), make_handler(home, tz))
+def serve(home: Path, tz: tzinfo, host: str = "127.0.0.1", port: int = 8072, drills: Path | None = None) -> None:
+    server = ThreadingHTTPServer((host, port), make_handler(home, tz, drills))
     print(f"Dashboard at http://{host}:{port}/  (Ctrl+C to stop)")
     try:
         server.serve_forever()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ncua72"
-version = "0.2.0"
+version = "0.3.0"
 description = "Triage, clock and document credit union cyber incidents under NCUA's 72-hour notification rule (12 CFR 748.1(c))."
 readme = "README.md"
 license = { text = "MIT" }

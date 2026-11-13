@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import __version__
-from .clock import get_tz, parse_time, to_iso, utcnow
+from .clock import fmt_local, from_iso, get_tz, parse_time, to_iso, utcnow
 from .incident import load
-from .log import IncidentLog, LogError, default_home
+from .log import IncidentLog, LogError, default_home, default_drills
 from .report import notification_summary, packet_html, packet_markdown
 from .rule import (
     ANSWERS,
@@ -62,7 +62,14 @@ def _ask_choice(prompt: Prompt, label: str, choices: tuple[str, ...]) -> str:
 
 
 def _open(args: argparse.Namespace) -> IncidentLog:
-    return IncidentLog.open(Path(args.home), args.incident)
+    """Open a real incident. Tabletop drills are refused here so they can't mix into real records."""
+    if args.incident.upper().startswith("TT-"):
+        raise CLIError(f"{args.incident} is a tabletop drill, not a real incident. Use: ncua72 tabletop report {args.incident}")
+    log = IncidentLog.open(Path(args.home), args.incident)
+    entries = log.entries()
+    if entries and entries[0].get("data", {}).get("exercise"):
+        raise CLIError(f"{args.incident} is marked as a tabletop exercise and can't be used as a real incident")
+    return log
 
 
 # ------------------------------------------------------------------ commands
@@ -98,6 +105,8 @@ def cmd_new(args, tz, prompt: Prompt) -> int:
     if discovered is None and args.interactive:
         discovered = _ask(prompt, "When was it discovered (YYYY-MM-DD HH:MM, local)", default="now")
     data["discovered_at"] = to_iso(parse_time(discovered, tz))
+    if args.id and not args.id.upper().startswith("CI-"):
+        raise CLIError("incident ids must start with CI- (TT- is reserved for tabletop drills)")
     log = IncidentLog.create(Path(args.home), args.id)
     log.append("opened", data, _actor(args))
     print(f"Opened {log.incident_id}: {data['title']}")
@@ -105,23 +114,23 @@ def cmd_new(args, tz, prompt: Prompt) -> int:
     return 0
 
 
-def _walk(prompt: Prompt) -> dict[str, dict[str, str]]:
+def _walk(prompt: Prompt, out: Callable[[str], None] = print) -> dict[str, dict[str, str]]:
     answers: dict[str, dict[str, str]] = {}
     plain: dict[str, str] = {}
-    print("\nAnswer each test yes, no or unsure, and give your reason. Your reasons go in the record.\n")
+    out("\nAnswer each test yes, no or unsure, and give your reason. Your reasons go in the record.\n")
     while True:
         pending = [k for k in relevant_tests(plain) if k not in plain]
         if not pending:
             break
         t = test_by_key(pending[0])
-        print(f"== {t.title}  [{t.cite}]")
-        print(f"   {t.question}")
-        print(f"   ({t.help})")
+        out(f"== {t.title}  [{t.cite}]")
+        out(f"   {t.question}")
+        out(f"   ({t.help})")
         a = _ask_choice(prompt, "   Answer", ANSWERS)
         r = _ask(prompt, "   Rationale")
         answers[t.key] = {"answer": a, "rationale": r}
         plain[t.key] = a
-        print()
+        out("")
     return answers
 
 
@@ -219,7 +228,12 @@ def cmd_status(args, tz, prompt: Prompt) -> int:
         print(f"No incidents in {home}.")
         return 0
     for iid in ids:
+        if args.incident:
+            _open(args)
         inc = load(IncidentLog.open(home, iid))
+        if inc.profile.get("exercise"):
+            print(f"{iid}: skipped, marked as a tabletop exercise (drills belong in the drills folder)")
+            continue
         flag = "" if inc.integrity and inc.integrity.ok else "  [LOG FAILED VERIFICATION]"
         closed = "  [closed]" if inc.closed else ""
         print(f"{iid}  {inc.title}{closed}{flag}")
@@ -262,6 +276,8 @@ def cmd_packet(args, tz, prompt: Prompt) -> int:
 
 def cmd_verify(args, tz, prompt: Prompt) -> int:
     home = Path(args.home)
+    if args.incident:
+        _open(args)
     ids = [args.incident] if args.incident else IncidentLog.list_ids(home)
     bad = 0
     for iid in ids:
@@ -277,7 +293,117 @@ def cmd_verify(args, tz, prompt: Prompt) -> int:
 def cmd_serve(args, tz, prompt: Prompt) -> int:
     from .web import serve
 
-    serve(Path(args.home), tz, host=args.host, port=args.port)
+    serve(Path(args.home), tz, host=args.host, port=args.port, drills=Path(args.drills))
+    return 0
+
+
+# ------------------------------------------------------------------ tabletop
+
+def _drills_home(args: argparse.Namespace) -> Path:
+    drills, home = Path(args.drills), Path(args.home)
+    if drills.resolve() == home.resolve():
+        raise CLIError("the drills folder must be separate from the real incident folder (--drills vs --home)")
+    return drills
+
+
+def cmd_tabletop_list(args, tz, prompt: Prompt) -> int:
+    from .tabletop import scenario_list
+
+    print("Built-in tabletop scenarios (fictional credit union and companies):\n")
+    for s in scenario_list():
+        print(f"  {s.key:<16} {s.title}")
+        print(f"  {'':<16} {s.summary} {len(s.injects)} injects over {s.length_hours:g} simulated hours.")
+    print("\nRun one with: ncua72 tabletop run core-ransomware")
+    return 0
+
+
+def _write_report(inc, tz, fmt: str | None, out: str | None, author: str | None) -> str:
+    from . import pdf
+    from .tabletop import after_action_html, after_action_markdown, after_action_pdf
+
+    if fmt is None:
+        fmt = "pdf" if pdf.available() else "md"
+    path = out or f"{inc.incident_id}-after-action.{fmt}"
+    if fmt == "pdf":
+        try:
+            Path(path).write_bytes(after_action_pdf(inc, tz, author=author))
+        except pdf.PDFUnavailable as exc:
+            raise CLIError(str(exc)) from exc
+    elif fmt == "html":
+        Path(path).write_text(after_action_html(inc, tz, author=author), encoding="utf-8")
+    else:
+        Path(path).write_text(after_action_markdown(inc, tz), encoding="utf-8")
+    return path
+
+
+def cmd_tabletop_run(args, tz, prompt: Prompt) -> int:
+    from .scenarios import by_key, keys
+    from .tabletop import EXERCISE_BANNER, finish_drill, load_drill, start_drill
+
+    try:
+        scn = by_key(args.scenario)
+    except KeyError:
+        raise CLIError(f"no scenario {args.scenario!r}; choose from {', '.join(keys())}") from None
+    if args.speed < 0:
+        raise CLIError("--speed can't be negative")
+    walkthrough = args.walkthrough or not args.interactive
+    if not args.interactive and not args.walkthrough:
+        print("Not running in a terminal, so playing the answer-key walkthrough.")
+    facilitator, participants = args.facilitator or "", args.participants or ""
+    if args.interactive and not walkthrough:
+        if args.facilitator is None:
+            facilitator = _ask(prompt, "Facilitator", required=False)
+        if args.participants is None:
+            participants = _ask(prompt, "Participants (names or roles)", required=False)
+    speed = 0.0 if walkthrough else args.speed
+    print("=" * 72)
+    print(EXERCISE_BANNER)
+    print("=" * 72)
+    print(f"Scenario: {scn.title}")
+    print(scn.summary)
+    if speed:
+        print(f"Simulated clock: {speed:g}x real time. Every real minute you spend costs {speed / 60:g} simulated hours.")
+    else:
+        print("Simulated clock: moves only with the injects.")
+    drill = start_drill(scn, _drills_home(args), tz, _actor(args), speed=speed,
+                        facilitator=facilitator, participants=participants)
+    print(f"Drill {drill.log.incident_id} started. Logs go to {drill.log.path}")
+    drill.play(prompt, walkthrough=walkthrough)
+    sc = finish_drill(drill)
+    print()
+    print(f"Drill over. Score: {sc.total} of 100 ({sc.rating}).")
+    for part in sc.parts:
+        print(f"   {part.name}: {part.points}/{part.max}. {part.detail}")
+    inc = load_drill(_drills_home(args), drill.log.incident_id)
+    path = _write_report(inc, tz, args.format, args.out, args.author or facilitator or None)
+    print(f"After-action report: {path}")
+    return 0
+
+
+def cmd_tabletop_report(args, tz, prompt: Prompt) -> int:
+    from .tabletop import load_drill
+
+    inc = load_drill(_drills_home(args), args.drill)
+    path = _write_report(inc, tz, args.format, args.out, args.author or inc.profile.get("facilitator") or None)
+    print(f"Wrote {path}")
+    return 0
+
+
+def cmd_tabletop_history(args, tz, prompt: Prompt) -> int:
+    from .tabletop import DrillLog, load_drill
+
+    drills = _drills_home(args)
+    ids = DrillLog.list_ids(drills)
+    if not ids:
+        print(f"No drills in {drills}.")
+        return 0
+    for iid in ids:
+        inc = load_drill(drills, iid)
+        end = [e["data"] for e in inc.entries if e["type"] == "drill_end"]
+        result = f"score {end[-1]['score']}/100" if end else "not finished"
+        flag = "" if inc.integrity and inc.integrity.ok else "  [LOG FAILED VERIFICATION]"
+        when = fmt_local(from_iso(inc.entries[0]["recorded_at"]), tz)
+        print(f"{iid}  {inc.profile.get('scenario', '')}  {when}  {result}{flag}")
     return 0
 
 
@@ -292,6 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--version", action="version", version=f"ncua72 {__version__}")
     ap.add_argument("--home", default=str(default_home()), help="folder holding incident logs (default: ./incidents or $NCUA72_HOME)")
     ap.add_argument("--tz", help="IANA time zone for display and input, e.g. America/Los_Angeles (default: $NCUA72_TZ or system)")
+    ap.add_argument("--drills", default=str(default_drills()), help="folder for tabletop drill logs, kept apart from real incidents (default: ./drills or $NCUA72_DRILLS)")
     ap.add_argument("--actor", help="name recorded on log entries (default: your login name)")
     sub = ap.add_subparsers(dest="command", required=True)
 
@@ -364,6 +491,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8072)
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("tabletop", help="practice drills on a simulated clock, kept apart from real incidents")
+    tsub = p.add_subparsers(dest="tabletop_command", required=True)
+    t = tsub.add_parser("list", help="list the built-in scenarios")
+    t.set_defaults(func=cmd_tabletop_list)
+    t = tsub.add_parser("run", help="run a timed drill")
+    t.add_argument("scenario")
+    t.add_argument("--speed", type=float, default=60.0, help="simulated seconds per real second (default 60: one real minute is one simulated hour; 0 freezes the clock between injects)")
+    t.add_argument("--facilitator")
+    t.add_argument("--participants")
+    t.add_argument("--walkthrough", action="store_true", help="play the answer key instead of prompting, for a demo")
+    t.add_argument("--format", choices=("md", "html", "pdf"), help="after-action report format (default: pdf if reportlab is installed, else md)")
+    t.add_argument("--out", help="report file (default: <drill id>-after-action.<format>)")
+    t.add_argument("--author", help="author in the report's metadata (default: the facilitator)")
+    t.set_defaults(func=cmd_tabletop_run)
+    t = tsub.add_parser("report", help="rebuild a drill's after-action report")
+    t.add_argument("drill")
+    t.add_argument("--format", choices=("md", "html", "pdf"))
+    t.add_argument("--out")
+    t.add_argument("--author")
+    t.set_defaults(func=cmd_tabletop_report)
+    t = tsub.add_parser("history", help="list past drills and their scores")
+    t.set_defaults(func=cmd_tabletop_history)
     return ap
 
 

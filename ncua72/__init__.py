@@ -1,3 +1,3 @@
 """ncua72: triage, clock and document cyber incidents under NCUA's 72-hour rule."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

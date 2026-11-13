@@ -6,3 +6,4 @@ dist/
 .venv/
 # Real incident logs stay out of version control.
 /incidents/
+/drills/

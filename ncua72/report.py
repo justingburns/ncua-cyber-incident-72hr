@@ -85,6 +85,8 @@ def _event_text(e: dict[str, Any], tz: tzinfo) -> str:
 
 
 def packet_blocks(inc: Incident, tz: tzinfo, now: datetime | None = None, prepared_by: str | None = None) -> list[Block]:
+    if inc.profile.get("exercise"):
+        raise ValueError(f"{inc.incident_id} is a tabletop exercise; it has an after-action report, not an examiner packet")
     now = now or utcnow()
     p = inc.profile
     clock = inc.clock(now)

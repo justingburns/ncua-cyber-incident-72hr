@@ -57,12 +57,21 @@ def default_home() -> Path:
     return Path(os.environ.get("NCUA72_HOME", "incidents"))
 
 
-def new_incident_id(now: datetime | None = None) -> str:
+def default_drills() -> Path:
+    return Path(os.environ.get("NCUA72_DRILLS", "drills"))
+
+
+def new_incident_id(now: datetime | None = None, prefix: str = "CI") -> str:
     now = now or utcnow()
-    return f"CI-{now:%Y%m%d}-{secrets.token_hex(2).upper()}"
+    return f"{prefix}-{now:%Y%m%d}-{secrets.token_hex(2).upper()}"
 
 
 class IncidentLog:
+    # Real incidents are CI-...; tabletop drills use a subclass with their own prefix
+    # and folder, so the two never share a listing.
+    PREFIX = "CI"
+    TYPES: tuple[str, ...] = EVENT_TYPES
+
     def __init__(self, home: Path, incident_id: str):
         self.home = Path(home)
         self.incident_id = incident_id
@@ -72,7 +81,7 @@ class IncidentLog:
     def create(cls, home: Path, incident_id: str | None = None) -> "IncidentLog":
         home = Path(home)
         home.mkdir(parents=True, exist_ok=True)
-        incident_id = incident_id or new_incident_id()
+        incident_id = incident_id or new_incident_id(prefix=cls.PREFIX)
         log = cls(home, incident_id)
         if log.path.exists():
             raise LogError(f"incident {incident_id} already exists")
@@ -85,12 +94,12 @@ class IncidentLog:
             raise LogError(f"no incident {incident_id} in {home}")
         return log
 
-    @staticmethod
-    def list_ids(home: Path) -> list[str]:
+    @classmethod
+    def list_ids(cls, home: Path) -> list[str]:
         home = Path(home)
         if not home.is_dir():
             return []
-        return sorted(p.stem for p in home.glob("CI-*.jsonl"))
+        return sorted(p.stem for p in home.glob(f"{cls.PREFIX}-*.jsonl"))
 
     def entries(self) -> list[dict[str, Any]]:
         if not self.path.exists():
@@ -123,7 +132,7 @@ class IncidentLog:
         return VerifyResult(True, len(entries), prev)
 
     def append(self, event_type: str, data: dict[str, Any], actor: str) -> dict[str, Any]:
-        if event_type not in EVENT_TYPES:
+        if event_type not in self.TYPES:
             raise LogError(f"unknown event type {event_type}")
         check = self.verify()
         if not check.ok:

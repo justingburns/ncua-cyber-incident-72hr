@@ -67,7 +67,13 @@ def _col_widths(headers: list[str], rows: list[list[str]], total: float, measure
     return [m + extra * w / wsum for m, w in zip(minimum, weight)]
 
 
-def render_pdf(blocks: Iterable[Block], title: str, author: str | None, footer: str) -> bytes:
+def render_pdf(
+    blocks: Iterable[Block],
+    title: str,
+    author: str | None,
+    footer: str,
+    subject: str = "NCUA cyber incident notification record",
+) -> bytes:
     try:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_LEFT
@@ -163,7 +169,7 @@ def render_pdf(blocks: Iterable[Block], title: str, author: str | None, footer: 
         bottomMargin=0.75 * inch,
         title=title,
         author=author or "",
-        subject="NCUA cyber incident notification record",
+        subject=subject,
         creator="",
         producer="",
         keywords="",

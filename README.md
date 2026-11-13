@@ -24,6 +24,7 @@ Many teams handle this with a spreadsheet and memory, and general incident respo
 - **Prints the initial notification summary** with the items NCUA's letter asks credit unions to be ready to provide, and reminds you what to leave out of the first notice.
 - **Builds an examiner packet** as a PDF, Markdown or printable HTML: profile, determination with each test's answer and rationale, clock, notification record, full timeline and an integrity check.
 - **Shows a local dashboard** (`ncua72 serve`) with a live countdown for every open incident and a PDF download for each packet. It is read-only and listens on 127.0.0.1 only.
+- **Runs tabletop exercises** (`ncua72 tabletop`): timed practice drills with four built-in scenarios, scored, with an after-action report. Drills are kept apart from real incidents. See [Tabletop exercises](#tabletop-exercises).
 
 No third-party packages, except one optional library ([reportlab](https://pypi.org/project/reportlab/)) for PDF export. No network calls. Your incident data stays in a folder you choose.
 
@@ -159,9 +160,83 @@ Leave out of the initial notice: sensitive personally identifiable information, 
 
 The full examiner packet for this fictional incident is in [examples/sample-packet.pdf](examples/sample-packet.pdf), with Markdown and HTML versions in [examples/sample-packet.md](examples/sample-packet.md) and [examples/sample-packet.html](examples/sample-packet.html). Rebuild them with `sh examples/run-sample.sh`. The sample was entered after the fact, so its "Recorded" times are later than the events; in real use you log as things happen.
 
+## Tabletop exercises
+
+Most credit unions run an incident response tabletop at least once a year. `ncua72 tabletop` turns one into a timed drill on the same rule, clock and log the real tool uses, then scores the team and writes an after-action report.
+
+```sh
+ncua72 tabletop list                       # the built-in scenarios
+ncua72 tabletop run core-ransomware        # run a drill; prompts the facilitator through it
+ncua72 tabletop history                    # past drills and their scores
+ncua72 tabletop report TT-20261113-79E1    # rebuild a drill's after-action report
+```
+
+**How a drill runs.** The scenario plays as a series of injects: a vendor's call, members who can't log in, the CEO asking whether this can wait until Monday. After each inject the team picks an action:
+
+| Key | Action |
+|---|---|
+| `c` or Enter | Next inject |
+| `a` | Walk the six reportability tests, with a reason for each answer |
+| `b` | Record that the credit union now reasonably believes a reportable incident occurred |
+| `n` | Notify the NCUA (simulated; nothing is sent anywhere) |
+| `l` | Log a decision or note |
+| `s` | Show the simulated clock and the team's determination so far |
+| `e` | End the drill now and score it |
+
+**The clock is the pressure.** Simulated time jumps forward with each inject and also runs between them. By default one real minute is one simulated hour (`--speed 60`), so a team that debates for ten minutes has spent ten of its 72 hours. `--speed 0` freezes the clock between injects for a slower, discussion-led session.
+
+**Built-in scenarios.** The credit union, people and companies are fictional. The facts follow the kinds of events NCUA lists in Letter 23-CU-07, Appendices A and B.
+
+| Scenario | What happens | Answer key |
+|---|---|---|
+| `core-ransomware` | The core provider calls on a Friday evening about a "security event," then confirms ransomware | Reportable; clock starts at the provider's call (Prong C) |
+| `bec-wire` | A member disputes a $48,500 wire requested from a compromised employee mailbox | Reportable; clock starts at reasonable belief |
+| `ddos-mitigated` | A payday DDoS that the mitigation service absorbs with 22 minutes of slow logins | Not reportable (not substantial) |
+| `vendor-exposure` | A print-and-mail vendor reports a publicly readable bucket of member statements | Reportable; clock starts at the vendor's notice |
+
+One scenario is deliberately not reportable. The drill tests the call, not just the speed.
+
+**Scoring (100 points).** Reportability call 40, test-by-test answers 20, NCUA notice timing 30 (full marks within 12 hours of when the clock should have started, less as the notice drifts toward the 72-hour deadline, none if late or missing), and recording the reasonable belief promptly 10. Some tests accept more than one answer where a reasonable team could differ.
+
+**The after-action report** (PDF by default, or `--format md` / `--format html`) has the score, findings, each test with the team's reasoning next to the answer key, when the clock should have started, debrief questions for the facilitator (insurer notice, member notice, SARs, vendor contracts), the full timeline in simulated time, and the log's hash-chain check. Its Author is the facilitator unless you pass `--author`; no software is named in its properties. See [examples/tabletop-sample-after-action.pdf](examples/tabletop-sample-after-action.pdf), from a team that scored 92: it was unsure about Prong B and waited until Saturday morning to call. Rebuild it with `python examples/tabletop_sample.py`.
+
+**For a demo,** `--walkthrough` plays the answer key with no prompts.
+
+**Kept apart from real incidents.** Drill logs go in their own folder (`--drills`, `$NCUA72_DRILLS`, default `./drills`), never the incident folder, and the tool refuses to use the same folder for both. Drill ids start with `TT-`; real incidents use `CI-`, and `new --id` won't accept `TT-`. Every drill's first log entry is marked as an exercise, so `status`, `summary`, `packet` and the dashboard's incident list refuse or skip such a log, and `verify` fails it, even if someone renames the file. The dashboard lists drills in a separate section, with each after-action report.
+
+### Running a drill on Windows
+
+PowerShell:
+
+```powershell
+cd ncua-cyber-incident-72hr
+$env:NCUA72_TZ = "America/Los_Angeles"
+py -m ncua72 tabletop list
+py -m ncua72 tabletop run core-ransomware --facilitator "Pat Example" --participants "CEO, CISO, COO"
+py -m ncua72 tabletop run ddos-mitigated --walkthrough
+py -m ncua72 tabletop history
+py -m ncua72 tabletop report TT-20261113-79E1 --format pdf --out drill.pdf
+start drill.pdf
+```
+
+Command Prompt:
+
+```bat
+cd ncua-cyber-incident-72hr
+set NCUA72_TZ=America/Los_Angeles
+py -m ncua72 tabletop list
+py -m ncua72 tabletop run core-ransomware --facilitator "Pat Example" --participants "CEO, CISO, COO"
+py -m ncua72 tabletop run ddos-mitigated --walkthrough
+py -m ncua72 tabletop history
+py -m ncua72 tabletop report TT-20261113-79E1 --format pdf --out drill.pdf
+start drill.pdf
+```
+
+`TT-20261113-79E1` is an example. Use a drill id that `tabletop history` shows.
+
 ## Where the data lives, and how to protect it
 
-Each incident is one file, `<NCUA72_HOME>/<incident id>.jsonl`. Keep that folder on storage with access controls and backups that match your incident response records policy. The hash chain shows tampering; it does not prevent it, and it does not encrypt anything. For stronger assurance, copy the final hash from `ncua72 verify` into your ticket or IR report at key moments. The `.gitignore` keeps `incidents/` out of version control. Do not commit real incident data.
+Each incident is one file, `<NCUA72_HOME>/<incident id>.jsonl`. Keep that folder on storage with access controls and backups that match your incident response records policy. The hash chain shows tampering; it does not prevent it, and it does not encrypt anything. For stronger assurance, copy the final hash from `ncua72 verify` into your ticket or IR report at key moments. The `.gitignore` keeps `incidents/` and `drills/` out of version control. Do not commit real incident data.
 
 ## Sources
 
@@ -193,6 +268,8 @@ The code is small on purpose:
 | `ncua72/pdf.py` | PDF version of the packet (optional reportlab) |
 | `ncua72/cli.py` | The `ncua72` command |
 | `ncua72/web.py` | Read-only local dashboard |
+| `ncua72/scenarios.py` | Built-in tabletop scenarios and answer keys |
+| `ncua72/tabletop.py` | Drill runner, simulated clock, scoring and after-action report |
 
 Issues and pull requests are welcome, especially from credit union security and compliance teams who see a test or a workflow that should work differently.
 
