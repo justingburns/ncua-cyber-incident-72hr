@@ -29,7 +29,7 @@ No third-party packages. No network calls. Your incident data stays in a folder 
 
 ## Quick start
 
-Requires Python 3.9 or later.
+Requires Python 3.10 or later.
 
 ```sh
 git clone https://github.com/justingburns/ncua-cyber-incident-72hr.git

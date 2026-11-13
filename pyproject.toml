@@ -9,7 +9,7 @@ description = "Triage, clock and document credit union cyber incidents under NCU
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Justin Burns, MBA" }]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = []
 keywords = ["ncua", "credit union", "incident response", "cybersecurity", "compliance"]
 classifiers = [
