@@ -1,0 +1,26 @@
+{
+  "cyber_incident": {
+    "answer": "yes",
+    "rationale": "Ransomware encrypted the core processing environment our provider hosts for us. Member account data and core availability were actually jeopardized without lawful authority."
+  },
+  "good_faith_exclusion": {
+    "answer": "no",
+    "rationale": "No testing or other authorized activity was under way. The provider confirmed a criminal intrusion."
+  },
+  "substantial": {
+    "answer": "yes",
+    "rationale": "Core, online banking and card authorizations were unavailable for more than four hours. NCUA's Appendix A lists ransomware on critical systems as an example that likely qualifies."
+  },
+  "prong_a": {
+    "answer": "yes",
+    "rationale": "Vital member services (online banking, bill pay, shared branching) were disrupted. Exposure of member data is still being investigated."
+  },
+  "prong_b": {
+    "answer": "yes",
+    "rationale": "The disruption resulted from a cyberattack (ransomware)."
+  },
+  "prong_c": {
+    "answer": "yes",
+    "rationale": "The disruption was caused by a compromise of our third-party core processing and data hosting provider."
+  }
+}

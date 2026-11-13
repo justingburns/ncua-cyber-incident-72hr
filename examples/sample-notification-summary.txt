@@ -1,0 +1,20 @@
+NCUA CYBER INCIDENT NOTIFICATION (initial)
+
+Credit union: Example Federal Credit Union
+Charter number: 00000
+Reporting individual: Pat Example, Chief Information Security Officer
+Telephone: (555) 010-0100
+Email: pat.example@example.org
+Reasonable belief formed: Mon Nov 9, 2026 7:30 AM PST
+Third-party notice received: Mon Nov 9, 2026 6:40 AM PST (Example Core Services, Inc.)
+Description: Our core processing provider reported a ransomware attack on the environment that hosts our core. Core, online banking and card authorizations were unavailable.
+Affected functions: Core processing, online and mobile banking, bill pay, card authorizations
+Sensitive information compromised: Unknown at this time
+
+-- For the person reporting (not part of the notice) --
+Deadline: Thu Nov 12, 2026 6:40 AM PST
+How to notify:
+  - Phone: 1-833-CYBERCU (1-833-292-3728); leave a voicemail if no one answers.
+  - Secure email to cybercu@ncua.gov, sent through the NCUA Secure Email Message Center.
+  - Other similar methods the NCUA may prescribe (12 CFR 748.1(c)).
+Leave out of the initial notice: sensitive personally identifiable information, indicators of compromise, specific vulnerabilities, email attachments.

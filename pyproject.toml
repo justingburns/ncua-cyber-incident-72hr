@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ncua72"
+version = "0.1.0"
+description = "Triage, clock and document credit union cyber incidents under NCUA's 72-hour notification rule (12 CFR 748.1(c))."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Justin Burns, MBA" }]
+requires-python = ">=3.9"
+dependencies = []
+keywords = ["ncua", "credit union", "incident response", "cybersecurity", "compliance"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Security",
+]
+
+[project.optional-dependencies]
+windows = ["tzdata"]
+
+[project.scripts]
+ncua72 = "ncua72.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/justingburns/ncua-cyber-incident-72hr"
+
+[tool.setuptools]
+packages = ["ncua72"]
