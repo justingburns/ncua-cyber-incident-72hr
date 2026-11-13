@@ -27,4 +27,5 @@ python3 -m ncua72 --actor pexample close "$ID" --at "2026-11-10 17:00" --reason 
 python3 -m ncua72 --actor pexample summary "$ID" > examples/sample-notification-summary.txt
 python3 -m ncua72 --actor pexample packet "$ID" --format md --out examples/sample-packet.md
 python3 -m ncua72 --actor pexample packet "$ID" --format html --author "Justin Burns, MBA" --out examples/sample-packet.html
+python3 -m ncua72 --actor pexample packet "$ID" --format pdf --author "Justin Burns, MBA" --out examples/sample-packet.pdf
 python3 -m ncua72 verify "$ID"

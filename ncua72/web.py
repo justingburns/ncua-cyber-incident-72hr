@@ -12,6 +12,7 @@ from datetime import tzinfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import pdf
 from .clock import DUE_SOON, NOTIFIED_LATE, OVERDUE, fmt_local
 from .incident import load
 from .log import IncidentLog, LogError
@@ -102,17 +103,36 @@ def make_handler(home: Path, tz: tzinfo):
             self.end_headers()
             self.wfile.write(data)
 
+        def _send_bytes(self, code: int, data: bytes, ctype: str, filename: str) -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_GET(self) -> None:  # noqa: N802
             path = self.path.split("?", 1)[0]
             try:
                 if path == "/":
                     return self._send(200, dashboard_html(home, tz))
-                m = re.match(r"^/incident/([^/]+)(/packet\.md)?$", path)
+                m = re.match(r"^/incident/([^/]+)(/packet\.(md|pdf))?$", path)
                 if m and ID_RE.match(m.group(1)):
                     inc = load(IncidentLog.open(home, m.group(1)))
-                    if m.group(2):
+                    if m.group(3) == "md":
                         return self._send(200, packet_markdown(inc, tz), "text/markdown; charset=utf-8")
-                    back = f'<p><a href="/">All incidents</a> · <a href="/incident/{inc.incident_id}/packet.md">Markdown</a> · print this page to save a PDF</p>'
+                    if m.group(3) == "pdf":
+                        if not pdf.available():
+                            return self._send(501, f"<p>{html.escape(pdf.INSTALL_HINT)}</p>")
+                        data = pdf.packet_pdf(inc, tz, author=inc.profile.get("reporter_name") or None)
+                        return self._send_bytes(200, data, "application/pdf", f"{inc.incident_id}.pdf")
+                    iid = inc.incident_id
+                    back = (
+                        f'<p><a href="/">All incidents</a> · <a href="/incident/{iid}/packet.pdf">Download PDF</a>'
+                        f' · <a href="/incident/{iid}/packet.md">Markdown</a></p>'
+                    )
                     return self._send(200, render_html(packet_blocks(inc, tz), f"Cyber Incident Record {inc.incident_id}", extra_body=back))
                 return self._send(404, "<p>Not found</p>")
             except LogError:

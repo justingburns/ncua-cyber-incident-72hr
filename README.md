@@ -22,10 +22,10 @@ Many teams handle this with a spreadsheet and memory, and general incident respo
 - **Starts the 72-hour clock** from the earlier of the reasonable-belief time or a third-party notice, and shows the deadline and time left in your local time zone (daylight saving time handled).
 - **Keeps an append-only, hash-chained log** (one JSON Lines file per incident). Each entry carries the SHA-256 of the entry before it, so any later edit, deletion or reordering is detectable with `ncua72 verify`. Corrections are new entries, never edits.
 - **Prints the initial notification summary** with the items NCUA's letter asks credit unions to be ready to provide, and reminds you what to leave out of the first notice.
-- **Builds an examiner packet** in Markdown or printable HTML (print to PDF from any browser): profile, determination with each test's answer and rationale, clock, notification record, full timeline and an integrity check.
-- **Shows a local dashboard** (`ncua72 serve`) with a live countdown for every open incident. It is read-only and listens on 127.0.0.1 only.
+- **Builds an examiner packet** as a PDF, Markdown or printable HTML: profile, determination with each test's answer and rationale, clock, notification record, full timeline and an integrity check.
+- **Shows a local dashboard** (`ncua72 serve`) with a live countdown for every open incident and a PDF download for each packet. It is read-only and listens on 127.0.0.1 only.
 
-No third-party packages. No network calls. Your incident data stays in a folder you choose.
+No third-party packages, except one optional library ([reportlab](https://pypi.org/project/reportlab/)) for PDF export. No network calls. Your incident data stays in a folder you choose.
 
 ## Quick start
 
@@ -34,14 +34,14 @@ Requires Python 3.10 or later.
 ```sh
 git clone https://github.com/justingburns/ncua-cyber-incident-72hr.git
 cd ncua-cyber-incident-72hr
-pip install .            # adds the ncua72 command
-# On Windows, also: pip install tzdata   (Windows has no built-in time zone database)
+pip install ".[pdf]"     # adds the ncua72 command, with PDF export
+# Without PDF export: pip install .
 ```
 
 Set your time zone once (or pass `--tz` each time):
 
 ```sh
-export NCUA72_TZ=America/Los_Angeles          # PowerShell: $env:NCUA72_TZ="America/Los_Angeles"
+export NCUA72_TZ=America/Los_Angeles
 export NCUA72_HOME=/secure/share/incidents    # where the logs live; default ./incidents
 ```
 
@@ -61,10 +61,49 @@ ncua72 believe     CI-20261109-5A7C --at "2026-11-09 07:30" --basis "Provider co
 ncua72 note        CI-20261109-5A7C "IR firm engaged" --at "2026-11-09 07:15"
 ncua72 summary     CI-20261109-5A7C            # text to read or send at initial notification
 ncua72 notified    CI-20261109-5A7C --at "2026-11-09 09:10" --method phone --reference "Voicemail left"
+ncua72 packet      CI-20261109-5A7C --format pdf                 # writes CI-20261109-5A7C.pdf
 ncua72 packet      CI-20261109-5A7C --format html --out packet.html
 ncua72 verify                                   # check every log's hash chain
 ncua72 serve                                    # dashboard at http://127.0.0.1:8072/
 ```
+
+### On Windows
+
+Windows has no built-in time zone database, so install `tzdata` too. These steps run the tool straight from the downloaded folder with `py -m ncua72`, with no install. If `py` isn't found, use `python`.
+
+PowerShell:
+
+```powershell
+git clone https://github.com/justingburns/ncua-cyber-incident-72hr.git
+cd ncua-cyber-incident-72hr
+py -m pip install tzdata reportlab
+$env:NCUA72_TZ = "America/Los_Angeles"
+py -m ncua72 --home examples\incidents status
+py -m ncua72 --home examples\incidents packet CI-20261109-5A7C --format pdf --out sample.pdf
+start sample.pdf
+py -m ncua72 new
+py -m ncua72 serve
+```
+
+Command Prompt:
+
+```bat
+git clone https://github.com/justingburns/ncua-cyber-incident-72hr.git
+cd ncua-cyber-incident-72hr
+py -m pip install tzdata reportlab
+set NCUA72_TZ=America/Los_Angeles
+py -m ncua72 --home examples\incidents status
+py -m ncua72 --home examples\incidents packet CI-20261109-5A7C --format pdf --out sample.pdf
+start sample.pdf
+py -m ncua72 new
+py -m ncua72 serve
+```
+
+The time zone setting lasts for that window only. No git? Use **Code > Download ZIP** on the repository page, unzip it, and `cd` into the folder.
+
+### PDF export
+
+`--format pdf` needs `reportlab`. Without it, the tool says how to install it and every other command still works. The PDF's Author is the incident's reporting individual unless you pass `--author`. Creator and Producer are left blank, so the file names no software in its properties.
 
 Times you type are read in your time zone. Use `now`, `YYYY-MM-DD HH:MM` (24-hour) or full ISO 8601. Every entry also records when it was actually written, so a backdated "as of" time and the real recording time are both kept.
 
@@ -118,7 +157,7 @@ How to notify:
 Leave out of the initial notice: sensitive personally identifiable information, indicators of compromise, specific vulnerabilities, email attachments.
 ```
 
-The full examiner packet for this fictional incident is in [examples/sample-packet.md](examples/sample-packet.md), with a printable version in [examples/sample-packet.html](examples/sample-packet.html). Rebuild them with `sh examples/run-sample.sh`. The sample was entered after the fact, so its "Recorded" times are later than the events; in real use you log as things happen.
+The full examiner packet for this fictional incident is in [examples/sample-packet.pdf](examples/sample-packet.pdf), with Markdown and HTML versions in [examples/sample-packet.md](examples/sample-packet.md) and [examples/sample-packet.html](examples/sample-packet.html). Rebuild them with `sh examples/run-sample.sh`. The sample was entered after the fact, so its "Recorded" times are later than the events; in real use you log as things happen.
 
 ## Where the data lives, and how to protect it
 
@@ -138,6 +177,7 @@ Phone numbers, email addresses and portals change. Confirm the current notificat
 ## Development
 
 ```sh
+pip install reportlab tzdata   # PDF tests are skipped without reportlab
 python -m unittest discover -s tests -v
 ```
 
@@ -149,7 +189,8 @@ The code is small on purpose:
 | `ncua72/clock.py` | Time parsing, zones and the 72-hour clock |
 | `ncua72/log.py` | Append-only, hash-chained log |
 | `ncua72/incident.py` | Rebuilds an incident's state from its log |
-| `ncua72/report.py` | Notification summary and examiner packet |
+| `ncua72/report.py` | Notification summary and examiner packet (Markdown, HTML) |
+| `ncua72/pdf.py` | PDF version of the packet (optional reportlab) |
 | `ncua72/cli.py` | The `ncua72` command |
 | `ncua72/web.py` | Read-only local dashboard |
 

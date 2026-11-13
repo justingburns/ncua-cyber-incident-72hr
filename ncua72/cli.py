@@ -236,8 +236,20 @@ def cmd_summary(args, tz, prompt: Prompt) -> int:
 
 def cmd_packet(args, tz, prompt: Prompt) -> int:
     inc = load(_open(args))
+    author = args.author or inc.profile.get("reporter_name") or None
+    if args.format == "pdf":
+        from .pdf import PDFUnavailable, packet_pdf
+
+        try:
+            data = packet_pdf(inc, tz, prepared_by=_actor(args), author=author)
+        except PDFUnavailable as exc:
+            raise CLIError(str(exc)) from exc
+        out = args.out or f"{inc.incident_id}.pdf"
+        Path(out).write_bytes(data)
+        print(f"Wrote {out}")
+        return 0
     if args.format == "html":
-        text = packet_html(inc, tz, prepared_by=_actor(args), author=args.author)
+        text = packet_html(inc, tz, prepared_by=_actor(args), author=author)
     else:
         text = packet_markdown(inc, tz, prepared_by=_actor(args))
     if args.out:
@@ -339,9 +351,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("packet", help="write the examiner packet")
     p.add_argument("incident")
-    p.add_argument("--format", choices=("md", "html"), default="md")
-    p.add_argument("--out", help="file to write (default: print)")
-    p.add_argument("--author", help="author name for the HTML document's metadata")
+    p.add_argument("--format", choices=("md", "html", "pdf"), default="md", help="pdf needs the reportlab package")
+    p.add_argument("--out", help="file to write (default: print; for pdf, <incident id>.pdf)")
+    p.add_argument("--author", help="author in the document's metadata (default: the reporting individual)")
     p.set_defaults(func=cmd_packet)
 
     p = sub.add_parser("verify", help="check the hash chain of one or all incident logs")
